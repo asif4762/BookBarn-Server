@@ -27,6 +27,7 @@ async function run() {
     const reviewCollection = db.collection('Reviews')
     const cartCollection = db.collection('Cart')
     const userCollection = db.collection('User')
+    const contactCollection = db.collection('ContactMessages');
 
     app.get('/books', async (req, res) => {
       const result = await bookCollection.find().toArray()
@@ -115,6 +116,25 @@ async function run() {
       } catch (error) {
         console.error(error);
         res.status(500).send({ message: "Server error" });
+      }
+    });
+
+    app.post('/contact', async (req, res) => {
+      const { name, email, message } = req.body;
+      if (!name || !email || !message) {
+        return res.status(400).send({ message: 'All fields are required.' });
+      }
+      try {
+        const result = await contactCollection.insertOne({
+          name,
+          email,
+          message,
+          createdAt: new Date(),
+        });
+        res.send({ success: true, insertedId: result.insertedId });
+      } catch (err) {
+        console.error(err);
+        res.status(500).send({ success: false, message: 'Server error.' });
       }
     });
 
