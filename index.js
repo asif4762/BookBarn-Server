@@ -2,7 +2,8 @@ const express = require('express')
 const app = express()
 const cors = require('cors')
 require('dotenv').config()
-const port = process.env.PORT || 8156
+const port = process.env.PORT || 8157
+const SSLCommerzPayment = require('sslcommerz-lts')
 
 app.use(cors())
 app.use(express.json())
@@ -14,8 +15,8 @@ const client = new MongoClient(uri, {
   serverApi: {
     version: ServerApiVersion.v1,
     strict: true,
-    deprecationErrors: true
-  }
+    deprecationErrors: true,
+  },
 })
 
 async function run() {
@@ -27,102 +28,253 @@ async function run() {
     const reviewCollection = db.collection('Reviews')
     const cartCollection = db.collection('Cart')
     const userCollection = db.collection('User')
-    const contactCollection = db.collection('ContactMessages');
+    const contactCollection = db.collection('ContactMessages')
+    const billingCollection = db.collection('Billings')
 
+    // Get all books
     app.get('/books', async (req, res) => {
-      const result = await bookCollection.find().toArray()
-      res.send(result)
-    })
-
-    app.get('/reviews', async (req, res) => {
-      const result = await reviewCollection.find().toArray()
-      res.send(result)
-    })
-
-    app.post('/users', async (req, res) => {
-      const user = req.body
-      const result = await userCollection.insertOne(user)
-      res.send(result)
-    })
-
-    app.get('/users/:email', async (req, res) => {
-      const email = req.params.email
-      const user = await userCollection.findOne({ email })
-      if (user) {
-        res.send(user)
-      } else {
-        res.status(404).send({ message: 'User not found' })
+      try {
+        const result = await bookCollection.find().toArray()
+        res.send(result)
+      } catch (error) {
+        console.error(error)
+        res.status(500).send({ message: 'Server error' })
       }
     })
 
-    app.get('/users', async (req, res) => {
-      const result = await userCollection.find().toArray()
+    // Get books by category
+    app.get('/books/:course', async (req, res) => {
+      const course = req.params.course
+      const result = await bookCollection.find({ course }).toArray()
       res.send(result)
     })
 
-    app.post('/carts', async (req, res) => {
-      const { email, _id: bookId, count = 1, ...bookData } = req.body;
-
-      const existingCartItem = await cartCollection.findOne({ email, bookId });
-
-      if (existingCartItem) {
-        const result = await cartCollection.updateOne(
-          { email, bookId },
-          { $set: { count } }
-        );
-        res.send(result);
-      } else {
-        const newCartItem = {
-          email,
-          bookId,
-          count,
-          ...bookData,
-        };
-        const result = await cartCollection.insertOne(newCartItem);
-        res.send(result);
-      }
-    })
-
+    // Get cart items for a user
     app.get('/carts', async (req, res) => {
-      const email = req.query.email;
-      let query = {};
-      if(email){
-        query.email = email;
-      }
-      const result = await cartCollection.find(query).toArray();
-      res.send(result);
-    });
+      const email = req.query.email
+      if (!email) return res.status(400).send({ message: 'Email is required' })
 
-    // Fixed DELETE route: deletes by cart _id (ObjectId) and email
+      try {
+        const items = await cartCollection.find({ email }).toArray()
+        res.send(items)
+      } catch (error) {
+        console.error('Error fetching cart:', error)
+        res.status(500).send({ message: 'Internal server error' })
+      }
+    })
+
+    // Add or update cart item
+    app.post('/carts', async (req, res) => {
+  try {
+    const { email, _id: bookId, count = 1, ...bookData } = req.body;
+
+    if (!email || !bookId) {
+      return res.status(400).send({ message: 'Email and book ID are required' });
+    }
+
+    const existingCartItem = await cartCollection.findOne({ email, bookId });
+
+    if (existingCartItem) {
+      // Update the count for existing item
+      const result = await cartCollection.updateOne(
+        { email, bookId },
+        { $set: { count } }
+      );
+      return res.send(result);
+    } else {
+      // Insert new cart item
+      const newCartItem = { email, bookId, count, ...bookData };
+      const result = await cartCollection.insertOne(newCartItem);
+      return res.send(result);
+    }
+  } catch (error) {
+    console.error(error);
+    return res.status(500).send({ message: 'Server error' });
+  }
+});
+
+
+    // Update cart item count
+    app.put('/carts/:id', async (req, res) => {
+  const id = req.params.id;
+  const { count } = req.body;
+  const email = req.query.email;
+
+  if (!email) return res.status(400).send({ message: 'Email is required' });
+  if (!count || count < 1)
+    return res.status(400).send({ message: 'Count must be positive' });
+
+  try {
+    const result = await cartCollection.updateOne(
+      { _id: new ObjectId(id), email },
+      { $set: { count } }
+    );
+
+    if (result.matchedCount === 0) {
+      return res.status(404).send({ message: 'Cart item not found' });
+    }
+
+    return res.send({ success: true, updatedCount: count });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).send({ message: 'Server error' });
+  }
+});
+
+
+    // Delete cart item
     app.delete('/carts/:id', async (req, res) => {
-      const id = req.params.id;
-      const email = req.query.email;
+      const id = req.params.id
+      const email = req.query.email
 
-      if (!email) {
-        return res.status(400).send({ message: "Email is required" });
-      }
+      if (!email) return res.status(400).send({ message: 'Email is required' })
 
       try {
         const result = await cartCollection.deleteOne({
           _id: new ObjectId(id),
           email: email,
-        });
+        })
 
         if (result.deletedCount === 1) {
-          res.send({ message: "Deleted successfully" });
+          res.send({ message: 'Deleted successfully' })
         } else {
-          res.status(404).send({ message: "Cart item not found" });
+          res.status(404).send({ message: 'Cart item not found' })
         }
       } catch (error) {
-        console.error(error);
-        res.status(500).send({ message: "Server error" });
+        console.error(error)
+        res.status(500).send({ message: 'Server error' })
       }
-    });
+    })
 
+app.get('/billings', async (req, res) => {
+  const email = req.query.email;
+  if (!email) return res.status(400).send({ message: 'Email query param is required' });
+
+  try {
+    const billings = await billingCollection
+      .find({ email })
+      .sort({ purchasedAt: -1 })  // optional: latest purchase first
+      .toArray();
+
+    res.send(billings);
+  } catch (error) {
+    console.error('Error fetching billing records:', error);
+    res.status(500).send({ message: 'Failed to fetch billing records' });
+  }
+});
+
+
+
+    // Initiate payment with SSLCommerz
+    app.post('/initiate-payment', async (req, res) => {
+      try {
+        const { email, items } = req.body
+
+        if (!email || !items || !Array.isArray(items)) {
+          return res.status(400).send({ message: 'Invalid payment data' })
+        }
+
+        const totalAmount = items.reduce(
+          (sum, item) => sum + item.price * (item.quantity || 1),
+          0
+        )
+
+        const tran_id = 'TID' + Date.now()
+
+        const data = {
+          total_amount: totalAmount,
+          currency: 'BDT',
+          tran_id,
+          success_url: `http://localhost:8157/payment-success?tran_id=${tran_id}&email=${email}`,
+          fail_url: 'http://localhost:3000/payment-fail',
+          cancel_url: 'http://localhost:3000/payment-cancel',
+          ipn_url: 'http://localhost:8157/ipn',
+          shipping_method: 'Courier',
+          product_name: 'Books',
+          product_category: 'Education',
+          product_profile: 'general',
+
+          // Required customer info
+          cus_name: email,
+          cus_email: email,
+          cus_add1: 'Dhaka',
+          cus_phone: '01700000000',
+
+          // Required shipping info (SSLCommerz needs ship_city!)
+          ship_name: email,
+          ship_add1: 'Dhaka',
+          ship_city: 'Dhaka', // Required!
+          ship_postcode: '1200',
+          ship_country: 'Bangladesh',
+        }
+
+        const sslcz = new SSLCommerzPayment(
+          process.env.SSLCZ_STORE_ID,
+          process.env.SSLCZ_STORE_PASS,
+          false // false for sandbox environment
+        )
+
+        const apiResponse = await sslcz.init(data)
+
+        if (!apiResponse.GatewayPageURL) {
+          console.error('SSLCommerz response missing GatewayPageURL:', apiResponse)
+          return res.status(500).send({ message: 'Payment gateway URL not found' })
+        }
+
+        res.send({ GatewayPageURL: apiResponse.GatewayPageURL })
+      } catch (error) {
+        console.error('Error in /initiate-payment:', error)
+        res.status(500).send({ message: 'Internal server error', error: error.message })
+      }
+    })
+
+    // Handle payment success redirect from SSLCommerz
+app.post('/payment-success', async (req, res) => {
+  const { tran_id, email } = req.query;
+
+  if (!tran_id || !email) {
+    return res.status(400).send({ message: 'Missing tran_id or email in query params' });
+  }
+
+  try {
+    const cartItems = await cartCollection.find({ email }).toArray();
+
+    if (!cartItems || cartItems.length === 0) {
+      return res.status(400).send({ message: 'No items in cart' });
+    }
+
+    const billingData = {
+      email,
+      transactionId: tran_id,
+      items: cartItems.map(item => ({
+        bookId: item.bookId,
+        title: item.title,
+        author: item.author,
+        price: item.price,
+        quantity: item.count,
+        image: item.image,
+      })),
+      purchasedAt: new Date(),
+    };
+
+    await billingCollection.insertOne(billingData);
+    await cartCollection.deleteMany({ email });
+
+    // Redirect or send success response
+    res.redirect('http://localhost:5174/dashboard/billings');
+  } catch (error) {
+    console.error('Payment success processing failed:', error);
+    res.status(500).send({ message: 'Payment success processing failed' });
+  }
+});
+
+
+
+    // Contact form message save
     app.post('/contact', async (req, res) => {
-      const { name, email, message } = req.body;
+      const { name, email, message } = req.body
       if (!name || !email || !message) {
-        return res.status(400).send({ message: 'All fields are required.' });
+        return res.status(400).send({ message: 'All fields are required.' })
       }
       try {
         const result = await contactCollection.insertOne({
@@ -130,18 +282,18 @@ async function run() {
           email,
           message,
           createdAt: new Date(),
-        });
-        res.send({ success: true, insertedId: result.insertedId });
+        })
+        res.send({ success: true, insertedId: result.insertedId })
       } catch (err) {
-        console.error(err);
-        res.status(500).send({ success: false, message: 'Server error.' });
+        console.error(err)
+        res.status(500).send({ success: false, message: 'Server error.' })
       }
-    });
+    })
 
     await client.db('admin').command({ ping: 1 })
     console.log('Pinged your deployment. You successfully connected to MongoDB!')
   } finally {
-    // await client.close()
+    // keep connection alive
   }
 }
 run().catch(console.dir)
