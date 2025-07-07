@@ -356,7 +356,7 @@ app.post('/payment-success', async (req, res) => {
     await cartCollection.deleteMany({ email });
 
     // Redirect or send success response
-    res.redirect('http://localhost:5174/dashboard/billings');
+    res.redirect('http://localhost:5173/dashboard/delivery-status');
   } catch (error) {
     console.error('Payment success processing failed:', error);
     res.status(500).send({ message: 'Payment success processing failed' });
