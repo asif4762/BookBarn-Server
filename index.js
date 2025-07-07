@@ -42,6 +42,16 @@ async function run() {
       }
     })
 
+    app.get('/reviews', async (req, res) => {
+  try {
+    const reviews = await reviewCollection.find().toArray();
+    res.send(reviews);
+  } catch (error) {
+    console.error("Error fetching reviews:", error);
+    res.status(500).send({ message: "Server error" });
+  }
+});
+
     // Get books by category
     app.get('/books/:course', async (req, res) => {
       const course = req.params.course
@@ -261,10 +271,32 @@ app.post('/payment-success', async (req, res) => {
     await cartCollection.deleteMany({ email });
 
     // Redirect or send success response
-    res.redirect('http://localhost:5174/dashboard/billings');
+    res.redirect('http://localhost:5173/dashboard/billings');
   } catch (error) {
     console.error('Payment success processing failed:', error);
     res.status(500).send({ message: 'Payment success processing failed' });
+  }
+});
+
+// Save new user to MongoDB
+app.post('/users', async (req, res) => {
+  try {
+    const newUser = req.body;
+    if (!newUser?.email || !newUser?.name) {
+      return res.status(400).send({ message: 'Name and email are required' });
+    }
+
+    // Check if user already exists
+    const existing = await userCollection.findOne({ email: newUser.email });
+    if (existing) {
+      return res.status(200).send({ message: 'User already exists' });
+    }
+
+    const result = await userCollection.insertOne(newUser);
+    res.send(result);
+  } catch (error) {
+    console.error("Error saving user:", error);
+    res.status(500).send({ message: 'Failed to save user', error: error.message });
   }
 });
 
