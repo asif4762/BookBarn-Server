@@ -32,6 +32,19 @@ async function run() {
     const billingCollection = db.collection('Billings')
 
     // Get all books
+
+    // GET all contact messages
+app.get('/contact', async (req, res) => {
+  try {
+    const messages = await contactCollection.find().sort({ createdAt: -1 }).toArray();
+    res.send(messages);
+  } catch (error) {
+    console.error('Error fetching contact messages:', error);
+    res.status(500).send({ message: 'Failed to fetch contact messages' });
+  }
+});
+
+
     app.get('/books', async (req, res) => {
       try {
         const result = await bookCollection.find().toArray()
@@ -72,6 +85,36 @@ async function run() {
         res.status(500).send({ message: 'Internal server error' })
       }
     })
+    // Add new book
+app.post('/books', async (req, res) => {
+  try {
+    const book = req.body;
+
+    // Validate required fields (you can customize this)
+    const requiredFields = [
+      "title", "author", "course", "condition", "image", "id",
+      "price", "quantity", "orderCount", "sellerName", "location", "bookDescription"
+    ];
+    for (const field of requiredFields) {
+      if (!book[field]) {
+        return res.status(400).send({ message: `Missing required field: ${field}` });
+      }
+    }
+
+    // Check if book with same id exists (optional)
+    const existingBook = await bookCollection.findOne({ id: book.id });
+    if (existingBook) {
+      return res.status(400).send({ message: "Book with this ID already exists." });
+    }
+
+    // Insert book into collection
+    const result = await bookCollection.insertOne(book);
+    res.status(201).send({ message: "Book added successfully", insertedId: result.insertedId });
+  } catch (error) {
+    console.error("Error adding book:", error);
+    res.status(500).send({ message: "Server error" });
+  }
+});
 
     // Add or update cart item
     app.post('/carts', async (req, res) => {
@@ -155,6 +198,48 @@ async function run() {
         res.status(500).send({ message: 'Server error' })
       }
     })
+
+    app.delete('/books/:id', async (req, res) => {
+  const id = req.params.id;
+  try {
+    const result = await bookCollection.deleteOne({ _id: new ObjectId(id) });
+    if (result.deletedCount === 1) {
+      res.send({ message: 'Book deleted successfully' });
+    } else {
+      res.status(404).send({ message: 'Book not found' });
+    }
+  } catch (error) {
+    console.error("Error deleting book:", error);
+    res.status(500).send({ message: "Server error" });
+  }
+});
+
+// PATCH /users/:email  — update user info like role
+app.patch('/users/:email', async (req, res) => {
+  const email = req.params.email;
+  const { role } = req.body;
+
+  if (!role || (role !== 'admin' && role !== 'user')) {
+    return res.status(400).send({ message: 'Invalid role provided' });
+  }
+
+  try {
+    const result = await userCollection.updateOne(
+      { email },
+      { $set: { role } }
+    );
+
+    if (result.matchedCount === 0) {
+      return res.status(404).send({ message: 'User not found' });
+    }
+
+    res.send({ message: 'User role updated successfully' });
+  } catch (error) {
+    console.error('Error updating user role:', error);
+    res.status(500).send({ message: 'Server error' });
+  }
+});
+
 
 app.get('/billings', async (req, res) => {
   const email = req.query.email;
@@ -277,6 +362,27 @@ app.post('/payment-success', async (req, res) => {
     res.status(500).send({ message: 'Payment success processing failed' });
   }
 });
+
+app.get('/users/:email', async (req, res) => {
+  try {
+    const email = req.params.email;
+    const result = await userCollection.findOne({ email });
+    res.send(result);
+  } catch (error) {
+    res.status(500).send({ error: 'Failed to fetch user' });
+  }
+});
+
+
+app.get('/users', async (req, res) => {
+  try {
+    const result = await userCollection.find().toArray();
+    res.send(result);
+  } catch (error) {
+    res.status(500).send({ error: 'Failed to fetch users' });
+  }
+});
+
 
 // Save new user to MongoDB
 app.post('/users', async (req, res) => {
