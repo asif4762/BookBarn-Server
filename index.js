@@ -66,11 +66,18 @@ app.get('/contact', async (req, res) => {
 });
 
     // Get books by category
-    app.get('/books/:course', async (req, res) => {
-      const course = req.params.course
-      const result = await bookCollection.find({ course }).toArray()
-      res.send(result)
-    })
+    // Updated category route
+app.get('/books/category/:category', async (req, res) => {
+  const category = req.params.category;
+  try {
+    const result = await bookCollection.find({ category }).toArray();
+    res.send(result);
+  } catch (error) {
+    console.error('Error fetching books by category:', error);
+    res.status(500).send({ message: 'Server error' });
+  }
+})
+
 
     // Get cart items for a user
     app.get('/carts', async (req, res) => {
